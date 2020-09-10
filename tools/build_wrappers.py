@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 # Structs with no definition in the public header files
-OPAQUE_STRUCTS = [u'words']
+OPAQUE_STRUCTS = [u'words', u'wally_descriptor']
 
 EXCLUDED_FUNCS = {
     # Callers should use the fixed length bip39_mnemonic_to_seed512
@@ -30,6 +30,9 @@ MISSING_LEN_FUNCS = {
     'wally_aes_cbc': True, # is_upper_bound=true only needed for the case of decryption
     'wally_base58_to_bytes': True,
     'wally_base58_n_to_bytes': True,
+    # Note descriptor_to_script_len is present, but is an upper bound,
+    # so it is listed here to avoid generation as an exact length call.
+    'wally_descriptor_to_script': True,
     'wally_elements_pegin_contract_script_from_bytes': True,
     'wally_elements_pegout_script_from_bytes': True,
     'wally_format_bitcoin_message': True,
@@ -180,6 +183,8 @@ def gen_python_cffi(funcs, all_funcs, internal_only):
         argtype = arg.type[6:] if arg.is_const else arg.type # Strip const
         if argtype == u'uint64_t*' and n != num_args - 1:
             return u'POINTER(c_uint64)'
+        if argtype == u'char**' and n != num_args - 1:
+            return u'POINTER(c_char_p)'
         if argtype in typemap:
             return typemap[argtype]
         if arg.is_struct:
@@ -402,6 +407,7 @@ def gen_wasm_package(funcs, all_funcs):
     # Output arrays
     # map of C type -> (JS type, TypeScript return type)
     typemap_output_arrays = {
+        'char**': ('T.String', 'string'),
         'unsigned char*': ('T.Bytes', 'Buffer'),
         'uint32_t*': ('T.Uint32Array', 'Uint32Array'),
     }
@@ -438,7 +444,7 @@ def gen_wasm_package(funcs, all_funcs):
             # Output pointer to an array
             if is_array(func, arg, curr_index, num_args, typemap_output_arrays.keys()):
                 # Sanity check to make sure we don't misidentify unrelated arguments
-                assert arg.name.endswith("_out") or arg.name == 'scalar'
+                assert arg.name.endswith("_out") or arg.name in ('scalar', 'output')
 
                 (array_type, ts_return_type) = typemap_output_arrays[arg.type]
 
@@ -454,9 +460,8 @@ def gen_wasm_package(funcs, all_funcs):
                 elif func.buffer_len_fn:
                     len_fn = get_export_name(func.buffer_len_fn, all_funcs)
                     output_buffer_size = f"{len_fn}, {'true' if func.buffer_len_is_upper_bound else 'false'}"
-                elif func.name == 'wally_scrypt':
-                    # Special-case for wally_scrypt(), the only function with an output buffer where
-                    # the user provides the intended output length as an argument to the JS API.
+                elif func.name in ('wally_scrypt', 'wally_descriptor_to_addresses'):
+                    # User provides the intended output length as an argument to the JS API.
                     output_buffer_size = 'T.USER_PROVIDED_LEN'
                 else:
                     assert False, f'ERROR: Unknown output array size for {func.name}:{arg.type}'
