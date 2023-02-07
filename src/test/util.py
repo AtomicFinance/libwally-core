@@ -53,15 +53,6 @@ class ext_key(Structure):
                 ('pub_key', c_ubyte * 33),
                 ('pub_key_tweak_sum', c_ubyte * 32)]
 
-class wally_descriptor_address_item(Structure):
-    _fields_ = [('child_num', c_uint),
-                ('address', c_char_p),
-                ('address_len', c_ulong)]
-
-class wally_descriptor_addresses(Structure):
-    _fields_ = [('items',  POINTER(wally_descriptor_address_item)),
-                ('num_items', c_ulong)]
-
 # Sentinel classes for returning output parameters
 class c_char_p_p_class(object):
     pass
@@ -295,6 +286,7 @@ for f in (
     ('wally_base64_to_bytes', c_int, [c_char_p, c_uint32, c_void_p, c_size_t, c_size_t_p]),
     ('wally_bip32_key_to_addr_segwit', c_int, [POINTER(ext_key), c_char_p, c_uint32, c_char_p_p]),
     ('wally_bip32_key_to_address', c_int, [POINTER(ext_key), c_uint32, c_uint32, c_char_p_p]),
+    ('wally_bip340_tagged_hash', c_int, [c_void_p, c_size_t, c_char_p, c_void_p, c_size_t]),
     ('wally_bzero', c_int, [c_void_p, c_size_t]),
     ('wally_cleanup', c_int, [c_uint32]),
     ('wally_confidential_addr_from_addr', c_int, [c_char_p, c_uint32, c_void_p, c_size_t, c_char_p_p]),
@@ -303,13 +295,16 @@ for f in (
     ('wally_confidential_addr_to_addr', c_int, [c_char_p, c_uint32, c_char_p_p]),
     ('wally_confidential_addr_to_addr_segwit', c_int, [c_char_p, c_char_p, c_char_p, c_char_p_p]),
     ('wally_confidential_addr_to_ec_public_key', c_int, [c_char_p, c_uint32, c_void_p, c_size_t]),
-    ('wally_descriptor_create_checksum', c_int, [c_char_p, POINTER(wally_map), c_uint32, c_char_p_p]),
-    ('wally_descriptor_parse_miniscript', c_int, [c_char_p, POINTER(wally_map), c_uint32, c_uint32, c_void_p, c_size_t, c_size_t_p]),
-    ('wally_descriptor_parse_miniscript_len', c_int, [c_char_p, POINTER(wally_map), c_uint32, c_uint32, c_size_t_p]),
-    ('wally_descriptor_to_address', c_int, [c_char_p, POINTER(wally_map), c_uint32, c_uint32, c_uint32, c_char_p_p]),
-    ('wally_descriptor_to_addresses_alloc', c_int, [c_char_p, POINTER(wally_map), c_uint32, c_uint32, c_uint32, c_uint32, POINTER(POINTER(wally_map))]),
-    ('wally_descriptor_to_scriptpubkey', c_int, [c_char_p, POINTER(wally_map), c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_void_p, c_size_t, c_size_t_p]),
-    ('wally_descriptor_to_scriptpubkey_len', c_int, [c_char_p, POINTER(wally_map), c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_size_t_p]),
+    ('wally_descriptor_canonicalize', c_int, [c_void_p, c_uint32, c_char_p_p]),
+    ('wally_descriptor_free', c_int, [c_void_p]),
+    ('wally_descriptor_get_checksum', c_int, [c_void_p, c_uint32, c_char_p_p]),
+    ('wally_descriptor_get_features', c_int, [c_void_p, c_uint_p]),
+    ('wally_descriptor_parse', c_int, [c_char_p, POINTER(wally_map), c_uint32, c_uint32, POINTER(c_void_p)]),
+    ('wally_descriptor_to_address', c_int, [c_void_p, c_uint32, c_uint32, c_uint32, c_char_p_p]),
+    ('wally_descriptor_to_addresses', c_int, [c_void_p, c_uint32, c_uint32, c_uint32, POINTER(c_char_p), c_size_t]),
+    ('wally_descriptor_to_script', c_int, [c_void_p, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_void_p, c_size_t, c_size_t_p]),
+    ('wally_descriptor_to_script_get_maximum_length', c_int, [c_void_p, c_uint32, c_size_t_p]),
+    ('wally_descriptor_to_script_len', c_int, [c_void_p, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_size_t_p]),
     ('wally_ec_private_key_verify', c_int, [c_void_p, c_size_t]),
     ('wally_ec_public_key_decompress', c_int, [c_void_p, c_size_t, c_void_p, c_size_t]),
     ('wally_ec_public_key_from_private_key', c_int, [c_void_p, c_size_t, c_void_p, c_size_t]),
@@ -411,6 +406,12 @@ for f in (
     ('wally_psbt_from_base64', c_int, [c_char_p, c_uint32, POINTER(POINTER(wally_psbt))]),
     ('wally_psbt_from_bytes', c_int, [c_void_p, c_size_t, c_uint32, POINTER(POINTER(wally_psbt))]),
     ('wally_psbt_get_id', c_int, [POINTER(wally_psbt), c_uint32, c_void_p, c_size_t]),
+    ('wally_psbt_get_input_bip32_key_from_alloc', c_int, [POINTER(wally_psbt), c_size_t, c_size_t, c_uint32, POINTER(ext_key), POINTER(POINTER(ext_key))]),
+    ('wally_psbt_get_input_scriptcode', c_int, [POINTER(wally_psbt), c_size_t, c_void_p, c_size_t, c_void_p, c_size_t, c_size_t_p]),
+    ('wally_psbt_get_input_scriptcode_len', c_int, [POINTER(wally_psbt), c_size_t, c_void_p, c_size_t, c_size_t_p]),
+    ('wally_psbt_get_input_signature_hash', c_int, [POINTER(wally_psbt), c_size_t, POINTER(wally_tx), c_void_p, c_size_t, c_uint32, c_void_p, c_size_t]),
+    ('wally_psbt_get_input_signing_script', c_int, [POINTER(wally_psbt), c_size_t, c_void_p, c_size_t, c_size_t_p]),
+    ('wally_psbt_get_input_signing_script_len', c_int, [POINTER(wally_psbt), c_size_t, c_size_t_p]),
     ('wally_psbt_get_length', c_int, [POINTER(wally_psbt), c_uint32, c_size_t_p]),
     ('wally_psbt_get_locktime', c_int, [POINTER(wally_psbt), c_size_t_p]),
     ('wally_psbt_get_tx_version', c_int, [POINTER(wally_psbt), c_size_t_p]),
@@ -568,6 +569,8 @@ for f in (
     ('wally_psbt_set_tx_version', c_int, [POINTER(wally_psbt), c_uint32]),
     ('wally_psbt_set_version', c_int, [POINTER(wally_psbt), c_uint32, c_uint32]),
     ('wally_psbt_sign', c_int, [POINTER(wally_psbt), c_void_p, c_size_t, c_uint32]),
+    ('wally_psbt_sign_bip32', c_int, [POINTER(wally_psbt), POINTER(ext_key), c_uint32]),
+    ('wally_psbt_sign_input_bip32', c_int, [POINTER(wally_psbt), c_size_t, c_size_t, c_void_p, c_size_t, POINTER(ext_key), c_uint32]),
     ('wally_psbt_to_base64', c_int, [POINTER(wally_psbt), c_uint32, c_char_p_p]),
     ('wally_psbt_to_bytes', c_int, [POINTER(wally_psbt), c_uint32, c_void_p, c_size_t, c_size_t_p]),
     ('wally_ripemd160', c_int, [c_void_p, c_size_t, c_void_p, c_size_t]),
@@ -625,6 +628,7 @@ for f in (
     ('wally_tx_from_bytes', c_int, [c_void_p, c_size_t, c_uint32, POINTER(POINTER(wally_tx))]),
     ('wally_tx_from_hex', c_int, [c_char_p, c_uint32, POINTER(POINTER(wally_tx))]),
     ('wally_tx_get_btc_signature_hash', c_int, [POINTER(wally_tx), c_size_t, c_void_p, c_size_t, c_uint64, c_uint32, c_uint32, c_void_p, c_size_t]),
+    ('wally_tx_get_btc_taproot_signature_hash', c_int, [POINTER(wally_tx), c_size_t, POINTER(wally_map), POINTER(c_uint64), c_size_t, c_void_p, c_size_t, c_uint32, c_uint32, c_void_p, c_size_t, c_uint32, c_uint32, c_void_p, c_size_t]),
     ('wally_tx_get_elements_signature_hash', c_int, [POINTER(wally_tx), c_size_t, c_void_p, c_size_t, c_void_p, c_size_t, c_uint32, c_uint32, c_void_p, c_size_t]),
     ('wally_tx_get_length', c_int, [POINTER(wally_tx), c_uint32, c_size_t_p]),
     ('wally_tx_get_signature_hash', c_int, [POINTER(wally_tx), c_size_t, c_void_p, c_size_t, c_void_p, c_size_t, c_uint32, c_uint64, c_uint32, c_uint32, c_uint32, c_void_p, c_size_t]),
