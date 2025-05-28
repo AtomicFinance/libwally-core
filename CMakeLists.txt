@@ -125,7 +125,7 @@ set(CMAKE_INSTALL_RPATH "./;./build/${RPATH_TARGET};./wallycore;@rpath")
 else()
 set(CMAKE_INSTALL_RPATH "$ORIGIN/;./;./build/${RPATH_TARGET};./wallycore;@rpath")
 endif()
-endif(TARGET_RPATH) 
+endif(TARGET_RPATH)
 # message(STATUS "CMAKE_INSTALL_RPATH is => ${CMAKE_INSTALL_RPATH}")
 
 else()
@@ -306,16 +306,34 @@ set(ENABLE_MODULE_ECDSA_ADAPTOR "1")
 check_cxx_source_compiles("int main() { __builtin_popcount(0); return 0;}"
   HAVE_BUILTIN_POPCOUNT)
 
-check_cxx_source_compiles("int main() { __builtin_popcount(0); return 0;}"
-  HAVE_BUILTIN_POPCOUNT)
+# Better architecture detection
+message(STATUS "CMAKE_SYSTEM_PROCESSOR = ${CMAKE_SYSTEM_PROCESSOR}")
+message(STATUS "CMAKE_HOST_SYSTEM_PROCESSOR = ${CMAKE_HOST_SYSTEM_PROCESSOR}")
+message(STATUS "CMAKE_C_COMPILER_TARGET = ${CMAKE_C_COMPILER_TARGET}")
+message(STATUS "NODE_ARCH = ${NODE_ARCH}")
 
-if(CMAKE_C_COMPILER_TARGET MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-set(USE_ASM_X86_64 "1")
+# Check NODE_ARCH first (set by cmake-js), then fall back to CMAKE_SYSTEM_PROCESSOR
+if(NODE_ARCH MATCHES "arm64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+  # ARM64 architecture
+  message(STATUS "Detected ARM64 architecture")
+  set(USE_ASM_ARM "1")
+  # Don't use x86_64 assembly on ARM
+
+  # Force ARM64 compilation on macOS when NODE_ARCH is arm64
+  if(APPLE AND NODE_ARCH MATCHES "arm64")
+    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Build architectures for macOS" FORCE)
+    message(STATUS "Forcing macOS build architecture to arm64")
+  endif()
+elseif(CMAKE_C_COMPILER_TARGET MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+  # x86_64 architecture
+  message(STATUS "Detected x86_64 architecture")
+  set(USE_ASM_X86_64 "1")
 else()
-if(ARMCC)
-set(USE_EXTERNAL_ASM "1")
-set(USE_ASM_ARM "1")
-endif(ARMCC)
+  # Other architectures
+  if(ARMCC)
+    set(USE_EXTERNAL_ASM "1")
+    set(USE_ASM_ARM "1")
+  endif(ARMCC)
 endif()
 set(USE_ECMULT_STATIC_PRECOMPUTATION "1")
 # set(USE_REDUCED_SURJECTION_PROOF_SIZE "1")
@@ -336,17 +354,22 @@ set(USE_FIELD_INV_BUILTIN  "1")
 set(USE_SCALAR_INV_BUILTIN "1")
 endif()
 
+# Field and scalar implementation selection
 if(WIN32)
-set(USE_FIELD_10X26 "1")
-set(USE_SCALAR_8X32 "1")
+  set(USE_FIELD_10X26 "1")
+  set(USE_SCALAR_8X32 "1")
+elseif(NODE_ARCH MATCHES "arm64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+  # ARM64: Use 32-bit implementations to avoid x86_64 assembly
+  set(USE_FIELD_10X26 "1")
+  set(USE_SCALAR_8X32 "1")
 elseif("${CMAKE_SIZEOF_VOID_P}" STREQUAL "4")
-# x86
-set(USE_FIELD_10X26 "1")
-set(USE_SCALAR_8X32 "1")
+  # 32-bit systems
+  set(USE_FIELD_10X26 "1")
+  set(USE_SCALAR_8X32 "1")
 else()
-# x64
-set(USE_FIELD_5X52  "1")
-set(USE_SCALAR_4X64 "1")
+  # 64-bit x86 systems
+  set(USE_FIELD_5X52  "1")
+  set(USE_SCALAR_4X64 "1")
 endif()
 
 set(VERSION   WALLY_PACKAGE_VERSION)
@@ -768,7 +791,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E make_directory ${NODE_TEST_DATA_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${NODE_TEST_DATA_SRC_DIR} ${NODE_TEST_DATA_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/src/wrap_js/wally.js ${NODE_TEST_JS_DIR}
-    COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_CURRENT_SOURCE_DIR}/src/wrap_js/wally.js
+    COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_CURRENT_SOURCE_DIR}/src/wrap_js/wally.js
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 endif()
@@ -886,7 +909,7 @@ swig_add_library(${WALLY_SWIG_PYTHON_NAME}
 )
 
 if(PYTHONHOME)
-set_property(TARGET ${WALLY_SWIG_PYTHON_NAME} PROPERTY SWIG_INCLUDE_DIRECTORIES 
+set_property(TARGET ${WALLY_SWIG_PYTHON_NAME} PROPERTY SWIG_INCLUDE_DIRECTORIES
     ${PYTHONHOME}/include
 )
 include_directories(
@@ -894,7 +917,7 @@ include_directories(
 )
 endif()
 # set full path.
-set_property(TARGET ${WALLY_SWIG_PYTHON_NAME} PROPERTY SWIG_INCLUDE_DIRECTORIES 
+set_property(TARGET ${WALLY_SWIG_PYTHON_NAME} PROPERTY SWIG_INCLUDE_DIRECTORIES
     ${CONFIG_HEADER_DIRECTORY}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -923,10 +946,10 @@ target_include_directories(${WALLY_SWIG_PYTHON_NAME}
 )
 
 # SWIG_INCLUDE_DIRECTORIES
-set_property(TARGET ${WALLY_SWIG_PYTHON_NAME} PROPERTY SWIG_COMPILE_DEFINITIONS 
+set_property(TARGET ${WALLY_SWIG_PYTHON_NAME} PROPERTY SWIG_COMPILE_DEFINITIONS
     SWIG_PYTHON_BUILD WALLY_CORE_BUILD SECP256K1_BUILD USE_ECMULT_STATIC_PRECOMPUTATION HAVE_CONFIG_H ${ELEMENTS_COMP_OPT}
 )
-set_property(TARGET ${WALLY_SWIG_PYTHON_NAME} PROPERTY SWIG_COMPILE_OPTIONS 
+set_property(TARGET ${WALLY_SWIG_PYTHON_NAME} PROPERTY SWIG_COMPILE_OPTIONS
     -DSWIG_PYTHON_BUILD -DWALLY_CORE_BUILD -DSECP256K1_BUILD -DHAVE_CONFIG_H ${ELEMENTS_SWIG_DEFINE}
 )
 # swig_link_libraries(${WALLY_SWIG_PYTHON_NAME} ${PYTHON_LIBRARIES} wally)
@@ -1040,15 +1063,15 @@ add_custom_target(swig_python_cmd  ALL
     COMMAND echo "cat wallycore.py > __init__.py && cat python_extra.py_in >> __init__.py"
     COMMAND cat wallycore.py > __init__.py
     COMMAND cat python_extra.py_in >> __init__.py
-    COMMAND ${CMAKE_COMMAND} -E rm -f wallycore.py
-    COMMAND ${CMAKE_COMMAND} -E rm -f python_extra.py_in
+    COMMAND ${CMAKE_COMMAND} -E remove -f wallycore.py
+    COMMAND ${CMAKE_COMMAND} -E remove -f python_extra.py_in
     COMMAND ${CMAKE_COMMAND} -E make_directory ${SWIG_PY_OUTPUT_DIR}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${SWIG_PY_OUTPUT_DIR}/wallycore
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${SWIG_PY_SOURCE_DIR} ${SWIG_PY_OUTPUT_DIR}
-    COMMAND ${CMAKE_COMMAND} -E rm -f ${SWIG_PY_OUTPUT_DIR}/swig.i
+    COMMAND ${CMAKE_COMMAND} -E remove -f ${SWIG_PY_OUTPUT_DIR}/swig.i
     COMMAND ${CMAKE_COMMAND} -E rm -f ${SWIG_PY_OUTPUT_DIR}/python_extra.py_in
     COMMAND ${CMAKE_COMMAND} -E copy __init__.py ${SWIG_PY_OUTPUT_DIR}/wallycore/__init__.py
-    COMMAND ${CMAKE_COMMAND} -E rm -f __init__.py
+    COMMAND ${CMAKE_COMMAND} -E remove -f __init__.py
     COMMAND ${CMAKE_COMMAND} -E copy ${WALLY_OBJ_BINARY_DIR}/${SWIG_PY_OUTPUT_FILE} ${SWIG_PY_OUTPUT_DIR}/wallycore/${SWIG_PY_OUTPUT_FILE}
     # for test
     COMMAND ${CMAKE_COMMAND} -E copy ${WALLY_OBJ_BINARY_DIR}/${SWIG_PY_OUTPUT_FILE} ${SWIG_PY_OUTPUT_DIR}/contrib/${SWIG_PY_OUTPUT_FILE}
@@ -1131,11 +1154,11 @@ endif()
 # message (STATUS "JNI_INCLUDE_DIRS=${JNI_INCLUDE_DIRS}")
 # message (STATUS "JNI_LIBRARIES=${JNI_LIBRARIES}")
 include_directories(${JNI_INCLUDE_DIRS})
-set_property(TARGET ${WALLY_SWIG_JAVA_NAME} PROPERTY SWIG_INCLUDE_DIRECTORIES 
+set_property(TARGET ${WALLY_SWIG_JAVA_NAME} PROPERTY SWIG_INCLUDE_DIRECTORIES
     ${JNI_INCLUDE_DIRS}
 )
 # set full path.
-set_property(TARGET ${WALLY_SWIG_JAVA_NAME} PROPERTY SWIG_INCLUDE_DIRECTORIES 
+set_property(TARGET ${WALLY_SWIG_JAVA_NAME} PROPERTY SWIG_INCLUDE_DIRECTORIES
     ${CONFIG_HEADER_DIRECTORY}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -1167,10 +1190,10 @@ target_include_directories(${WALLY_SWIG_JAVA_NAME}
 )
 
 # SWIG_INCLUDE_DIRECTORIES
-set_property(TARGET ${WALLY_SWIG_JAVA_NAME} PROPERTY SWIG_COMPILE_DEFINITIONS 
+set_property(TARGET ${WALLY_SWIG_JAVA_NAME} PROPERTY SWIG_COMPILE_DEFINITIONS
     SWIG_JAVA_BUILD WALLY_CORE_BUILD SECP256K1_BUILD USE_ECMULT_STATIC_PRECOMPUTATION HAVE_CONFIG_H ${ELEMENTS_COMP_OPT}
 )
-set_property(TARGET ${WALLY_SWIG_JAVA_NAME} PROPERTY SWIG_COMPILE_OPTIONS 
+set_property(TARGET ${WALLY_SWIG_JAVA_NAME} PROPERTY SWIG_COMPILE_OPTIONS
     -DSWIG_JAVA_BUILD -DWALLY_CORE_BUILD -DSECP256K1_BUILD -DHAVE_CONFIG_H ${ELEMENTS_SWIG_DEFINE}
 )
 # swig_link_libraries(${WALLY_SWIG_JAVA_NAME} ${JNI_LIBRARIES} wally)
@@ -2008,7 +2031,7 @@ set(exec_prefix       ${prefix})
 set(libdir            ${exec_prefix}/lib)
 set(includedir        ${prefix}/include)
 include(GNUInstallDirs)
-set(CMAKE_INCLUDE_CURRENT_DIR_IN_INTERFACE ON) 
+set(CMAKE_INCLUDE_CURRENT_DIR_IN_INTERFACE ON)
 
 if(INSTALL_WALLYCORE)
 configure_file(src/wallycore.pc.in  wallycore.pc  @ONLY)
