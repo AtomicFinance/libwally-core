@@ -1,6 +1,6 @@
 name: Build Wheels
 
-on: 
+on:
   push:
     branches:
     - develop
@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-2022, macos-latest, ubuntu-22.04]
+        os: [windows-2022, self-hosted, ubuntu-22.04]
 
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +64,8 @@ jobs:
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_SKIP: "cp27-* cp35-* cp36-* cp37-* pp* *-musllinux*"
-          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          # Only build native architecture on macOS to avoid cross-compilation issues
+          CIBW_ARCHS_MACOS: "native"
           CIBW_ARCHS_LINUX: "x86_64"
           CIBW_ARCHS_WINDOWS: "AMD64"
           # Install build dependencies inside the build container
@@ -76,10 +77,49 @@ jobs:
           CIBW_BEFORE_ALL_MACOS: "brew install automake autoconf libtool swig || true"
           # Environment variables for the build
           CIBW_ENVIRONMENT: "WALLY_ABI_PY_WHEEL_VERSION=1001"
+          # Set architecture-specific flags for macOS
+          CIBW_ENVIRONMENT_MACOS: "WALLY_ABI_PY_WHEEL_VERSION=1001 ARCHFLAGS='-arch arm64' _PYTHON_HOST_PLATFORM='macosx-11.0-arm64'"
           # Increase build verbosity
           CIBW_BUILD_VERBOSITY: 1
 
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  # Separate job for x86_64 macOS wheels on GitHub-hosted runners
+  build_macos_x86_64_wheels:
+    name: Build x86_64 wheels on macOS
+    runs-on: macos-13  # Last Intel-based macOS runner
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        name: Install Python
+        with:
+          python-version: '3.10'
+
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel==2.16.2
+
+      - name: Install macOS Build Deps
+        run: |
+          brew install gnu-sed swig automake autoconf libtool pkg-config
+
+      - name: Build x86_64 Wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_SKIP: "cp27-* cp35-* cp36-* cp37-* pp* *-musllinux*"
+          CIBW_ARCHS_MACOS: "x86_64"
+          CIBW_BEFORE_ALL_MACOS: "brew install automake autoconf libtool swig || true"
+          CIBW_ENVIRONMENT: "WALLY_ABI_PY_WHEEL_VERSION=1001"
+          CIBW_ENVIRONMENT_MACOS: "WALLY_ABI_PY_WHEEL_VERSION=1001 ARCHFLAGS='-arch x86_64' _PYTHON_HOST_PLATFORM='macosx-10.9-x86_64'"
+          CIBW_BUILD_VERBOSITY: 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-x86_64
           path: ./wheelhouse/*.whl
