@@ -81,10 +81,58 @@ jobs:
       - name: Build Wheels (Self-hosted)
         if: matrix.os == 'self-hosted'
         run: |
-          # Build wheel manually on self-hosted runner to avoid Python installation issues
-          echo "Building wheel manually on self-hosted ARM64 runner"
-          python3 -m pip install wheel build
-          python3 -m build --wheel --outdir wheelhouse
+          # Build wheel manually on self-hosted runner using CMake to avoid autotools Python detection issues
+          echo "Building wheel manually on self-hosted ARM64 runner using CMake"
+
+          # Install required Python packages
+          python3 -m pip install wheel setuptools
+
+          # Build using CMake with Python support (which we already fixed for ARM64)
+          npm run cmake_clean
+          npm run cmake_python
+
+          # Check if SWIG files were generated
+          ls -la src/swig_python/
+          ls -la build/
+
+          # Create a simple wheel using the built library
+          mkdir -p wheelhouse
+          cd src/swig_python
+
+          # Check if swig_wrap.c was generated
+          if [ ! -f "swig_wrap.c" ]; then
+            echo "Error: swig_wrap.c not found. SWIG generation may have failed."
+            exit 1
+          fi
+
+          # Create a minimal setup.py that uses the pre-built library
+          echo "import os" > setup_simple.py
+          echo "import sys" >> setup_simple.py
+          echo "from setuptools import setup, Extension" >> setup_simple.py
+          echo "from distutils.util import get_platform" >> setup_simple.py
+          echo "" >> setup_simple.py
+          echo "wally_ext = Extension(" >> setup_simple.py
+          echo "    '_wallycore'," >> setup_simple.py
+          echo "    sources=['swig_wrap.c']," >> setup_simple.py
+          echo "    include_dirs=['../../include', '../../src']," >> setup_simple.py
+          echo "    library_dirs=['../../build/Release']," >> setup_simple.py
+          echo "    libraries=['wallycore']," >> setup_simple.py
+          echo "    define_macros=[('SWIG_PYTHON_BUILD', None), ('BUILD_ELEMENTS', None)]," >> setup_simple.py
+          echo ")" >> setup_simple.py
+          echo "" >> setup_simple.py
+          echo "setup(" >> setup_simple.py
+          echo "    name='wallycore'," >> setup_simple.py
+          echo "    version='0.8.3'," >> setup_simple.py
+          echo "    description='libwally Bitcoin library'," >> setup_simple.py
+          echo "    packages=['wallycore']," >> setup_simple.py
+          echo "    package_dir={'wallycore': '.'}," >> setup_simple.py
+          echo "    ext_modules=[wally_ext]," >> setup_simple.py
+          echo "    zip_safe=False," >> setup_simple.py
+          echo ")" >> setup_simple.py
+
+          # Build the wheel
+          python3 setup_simple.py bdist_wheel
+          cp dist/*.whl ../../wheelhouse/
         env:
           WALLY_ABI_PY_WHEEL_VERSION: "1001"
           ARCHFLAGS: "-arch arm64"
