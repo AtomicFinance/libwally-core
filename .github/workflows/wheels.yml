@@ -118,44 +118,42 @@ jobs:
           # Check if SWIG files were generated
           ls -la src/swig_python/
           ls -la build/
+          ls -la build/swig_python/
 
-          # Create a simple wheel using the built library
+          # The SWIG-generated files are in the build directory
+          # Copy them to create a proper Python package
           mkdir -p wheelhouse
-          cd src/swig_python
-
-          # Check if swig_wrap.c was generated
-          if [ ! -f "swig_wrap.c" ]; then
-            echo "Error: swig_wrap.c not found. SWIG generation may have failed."
-            exit 1
-          fi
-
-          # Create a minimal setup.py that uses the pre-built library
-          echo "import os" > setup_simple.py
-          echo "import sys" >> setup_simple.py
-          echo "from setuptools import setup, Extension" >> setup_simple.py
-          echo "from distutils.util import get_platform" >> setup_simple.py
-          echo "" >> setup_simple.py
-          echo "wally_ext = Extension(" >> setup_simple.py
-          echo "    '_wallycore'," >> setup_simple.py
-          echo "    sources=['swig_wrap.c']," >> setup_simple.py
-          echo "    include_dirs=['../../include', '../../src']," >> setup_simple.py
-          echo "    library_dirs=['../../build']," >> setup_simple.py
-          echo "    libraries=['wallycore']," >> setup_simple.py
-          echo "    define_macros=[('SWIG_PYTHON_BUILD', None), ('BUILD_ELEMENTS', None)]," >> setup_simple.py
-          echo ")" >> setup_simple.py
-          echo "" >> setup_simple.py
-          echo "setup(" >> setup_simple.py
-          echo "    name='wallycore'," >> setup_simple.py
-          echo "    version='0.8.3'," >> setup_simple.py
-          echo "    description='libwally Bitcoin library'," >> setup_simple.py
-          echo "    packages=['wallycore']," >> setup_simple.py
-          echo "    package_dir={'wallycore': '.'}," >> setup_simple.py
-          echo "    ext_modules=[wally_ext]," >> setup_simple.py
-          echo "    zip_safe=False," >> setup_simple.py
-          echo ")" >> setup_simple.py
+          
+          # Use the CMake-generated Python package
+          cd build/swig_python
+          
+          # The wallycore package should already be set up by CMake
+          ls -la wallycore/
+          
+          # Create a simple setup.py for building the wheel
+          echo "import os" > setup.py
+          echo "from setuptools import setup, find_packages" >> setup.py
+          echo "from setuptools.dist import Distribution" >> setup.py
+          echo "" >> setup.py
+          echo "class BinaryDistribution(Distribution):" >> setup.py
+          echo "    def has_ext_modules(self):" >> setup.py
+          echo "        return True" >> setup.py
+          echo "" >> setup.py
+          echo "setup(" >> setup.py
+          echo "    name='wallycore'," >> setup.py
+          echo "    version='0.8.3'," >> setup.py
+          echo "    description='libwally Bitcoin library'," >> setup.py
+          echo "    packages=find_packages()," >> setup.py
+          echo "    package_data={" >> setup.py
+          echo "        'wallycore': ['_wallycore.dylib', '_wallycore.so', '_wallycore.pyd']," >> setup.py
+          echo "    }," >> setup.py
+          echo "    include_package_data=True," >> setup.py
+          echo "    distclass=BinaryDistribution," >> setup.py
+          echo "    zip_safe=False," >> setup.py
+          echo ")" >> setup.py
 
           # Build the wheel
-          python3 setup_simple.py bdist_wheel
+          python3 setup.py bdist_wheel
           cp dist/*.whl ../../wheelhouse/
         env:
           WALLY_ABI_PY_WHEEL_VERSION: "1001"
