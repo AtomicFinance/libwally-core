@@ -78,18 +78,42 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y swig python3-dev automake autoconf libtool pkg-config
 
+      - name: Install Self-hosted Build Deps
+        if: matrix.os == 'self-hosted'
+        run: |
+          # Install SWIG and other build dependencies for self-hosted ARM64 runner
+          brew install swig automake autoconf libtool pkg-config || true
+          which swig
+          swig -version
+
       - name: Build Wheels (Self-hosted)
         if: matrix.os == 'self-hosted'
         run: |
-          # Build wheel manually on self-hosted runner using CMake to avoid autotools Python detection issues
-          echo "Building wheel manually on self-hosted ARM64 runner using CMake"
+          # Build wheel manually on self-hosted runner using direct CMake to avoid npm dependency issues
+          echo "Building wheel manually on self-hosted ARM64 runner using direct CMake"
 
           # Install required Python packages
           python3 -m pip install wheel setuptools
 
-          # Build using CMake with Python support (which we already fixed for ARM64)
-          npm run cmake_clean
-          npm run cmake_python
+          # Use direct CMake commands instead of npm scripts
+          mkdir -p build
+          cd build
+
+          # Configure with CMake directly (using our ARM64 fixes)
+          cmake .. \
+            -DENABLE_SHARED=ON \
+            -DENABLE_ELEMENTS=ON \
+            -DENABLE_SWIG_PYTHON=ON \
+            -DENABLE_SWIG_JAVA=OFF \
+            -DGENERATE_WALLY=OFF \
+            -DENABLE_JS_WRAPPER=OFF \
+            -DTARGET_RPATH="/usr/local/lib;/usr/local/lib64;@executable_path" \
+            -DCMAKE_BUILD_TYPE=Release
+
+          # Build the library
+          make -j$(sysctl -n hw.ncpu)
+
+          cd ..
 
           # Check if SWIG files were generated
           ls -la src/swig_python/
@@ -115,7 +139,7 @@ jobs:
           echo "    '_wallycore'," >> setup_simple.py
           echo "    sources=['swig_wrap.c']," >> setup_simple.py
           echo "    include_dirs=['../../include', '../../src']," >> setup_simple.py
-          echo "    library_dirs=['../../build/Release']," >> setup_simple.py
+          echo "    library_dirs=['../../build']," >> setup_simple.py
           echo "    libraries=['wallycore']," >> setup_simple.py
           echo "    define_macros=[('SWIG_PYTHON_BUILD', None), ('BUILD_ELEMENTS', None)]," >> setup_simple.py
           echo ")" >> setup_simple.py
