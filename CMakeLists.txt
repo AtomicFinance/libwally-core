@@ -1008,7 +1008,11 @@ add_custom_target(swig_python_cmd  ALL
     USES_TERMINAL
 )
 else()
+if(APPLE)
+set(SWIG_PY_OUTPUT_FILE  _${WALLY_SWIG_PYTHON_OUTPUT_NAME}.dylib)
+else()
 set(SWIG_PY_OUTPUT_FILE  _${WALLY_SWIG_PYTHON_OUTPUT_NAME}.so)
+endif()
 add_custom_target(swig_python_cmd  ALL
     COMMAND echo "[generate python file]"
     COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_WALLY_FILE} wallycore.py
@@ -1056,7 +1060,11 @@ add_custom_target(swig_python_cmd  ALL
     USES_TERMINAL
 )
 else()
+if(APPLE)
+set(SWIG_PY_OUTPUT_FILE  _${WALLY_SWIG_PYTHON_OUTPUT_NAME}.dylib)
+else()
 set(SWIG_PY_OUTPUT_FILE  _${WALLY_SWIG_PYTHON_OUTPUT_NAME}.so)
+endif()
 add_custom_target(swig_python_cmd  ALL
     COMMAND echo "[generate python file]"
     COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_WALLY_FILE} wallycore.py
@@ -1265,7 +1273,7 @@ add_custom_command(
     TARGET ${SWIG_JAVA_JAR_NAME}
     POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy  ${OUT_JAR_FILE} ${WALLY_OBJ_BINARY_DIR}
-    COMMAND ${CMAKE_COMMAND} -E copy  ${WALLY_OBJ_BINARY_DIR}/libwallycore.so ${SWIG_JAVA_OUTPUT_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy  ${WALLY_OBJ_BINARY_DIR}/$<IF:$<PLATFORM_ID:Darwin>,libwallycore.dylib,libwallycore.so> ${SWIG_JAVA_OUTPUT_DIR}
 )
 else()
 add_custom_command(
