@@ -34,6 +34,10 @@ jobs:
           echo "Using system Python"
           python3 --version
           pip3 --version
+          # Get Python version for cibuildwheel
+          PYTHON_VERSION=$(python3 -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
+          echo "PYTHON_VERSION=$PYTHON_VERSION" >> $GITHUB_ENV
+          echo "Detected Python version: $PYTHON_VERSION"
 
       - uses: ilammy/msvc-dev-cmd@v1.13.0
         if: runner.os == 'Windows'
@@ -74,33 +78,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y swig python3-dev automake autoconf libtool pkg-config
 
-      - name: Build Wheels
+      - name: Build Wheels (Self-hosted)
+        if: matrix.os == 'self-hosted'
         run: |
-          if [ "${{ matrix.os }}" = "self-hosted" ]; then
-            python3 -m cibuildwheel --output-dir wheelhouse
-          else
-            python -m cibuildwheel --output-dir wheelhouse
-          fi
-        shell: bash
+          # Build wheel manually on self-hosted runner to avoid Python installation issues
+          echo "Building wheel manually on self-hosted ARM64 runner"
+          python3 -m pip install wheel build
+          python3 -m build --wheel --outdir wheelhouse
         env:
-          # Skip Python 3.8 on ARM64 macOS (not natively supported), but allow on other platforms
-          CIBW_SKIP: ${{ matrix.os == 'self-hosted' && 'cp27-* cp35-* cp36-* cp37-* cp38-* pp* *-musllinux*' || 'cp27-* cp35-* cp36-* cp37-* pp* *-musllinux*' }}
-          # Only build native architecture on macOS to avoid cross-compilation issues
+          WALLY_ABI_PY_WHEEL_VERSION: "1001"
+          ARCHFLAGS: "-arch arm64"
+          _PYTHON_HOST_PLATFORM: "macosx-11.0-arm64"
+
+      - name: Build Wheels (Other platforms)
+        if: matrix.os != 'self-hosted'
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_SKIP: "cp27-* cp35-* cp36-* cp37-* pp* *-musllinux*"
           CIBW_ARCHS_MACOS: "native"
           CIBW_ARCHS_LINUX: "x86_64"
           CIBW_ARCHS_WINDOWS: "AMD64"
-          # Install build dependencies inside the build container
           CIBW_BEFORE_ALL_LINUX: |
             yum install -y epel-release && \
             yum install -y automake autoconf libtool swig3 && \
             ln -sf /usr/bin/swig3.0 /usr/bin/swig || \
             ln -sf /usr/bin/swig3 /usr/bin/swig
           CIBW_BEFORE_ALL_MACOS: "brew install automake autoconf libtool swig || true"
-          # Environment variables for the build
           CIBW_ENVIRONMENT: "WALLY_ABI_PY_WHEEL_VERSION=1001"
-          # Set architecture-specific flags for macOS
-          CIBW_ENVIRONMENT_MACOS: "WALLY_ABI_PY_WHEEL_VERSION=1001 ARCHFLAGS='-arch arm64' _PYTHON_HOST_PLATFORM='macosx-11.0-arm64'"
-          # Increase build verbosity
           CIBW_BUILD_VERBOSITY: 1
 
       - uses: actions/upload-artifact@v4
