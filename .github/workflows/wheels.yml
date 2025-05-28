@@ -1,16 +1,13 @@
-name: Build
+name: Build Wheels
 
 on: 
   push:
-    branches-ignore:
+    branches:
+    - develop
     - feature/*
-    - cfd-develop
-    - cfd-stable-*
   pull_request:
-    branches-ignore:
-    - cfd-develop
-    - cfd-stable-*
-    - feature/*
+    branches:
+    - develop
 
 jobs:
   build_wheels:
@@ -18,32 +15,33 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-2022, macos-latest, ubuntu-22.04]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: true
 
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         name: Install Python
         with:
-          python-version: '3.8'
+          python-version: '3.10'
 
-      - uses: ilammy/msvc-dev-cmd@v1.4.1
+      - uses: ilammy/msvc-dev-cmd@v1.12.1
+        if: runner.os == 'Windows'
 
       - name: Install cibuildwheel
-        run: python -m pip install cibuildwheel==1.11.0
+        run: python -m pip install cibuildwheel==2.16.2
 
       - name: Install Windows Build Deps
         if: runner.os == 'Windows'
-        run: choco install swig --version=3.0.7 --no-progress -y
+        run: choco install swig --version=4.1.1 --no-progress -y
 
       - name: Generate Windows SWIG Files
         if: runner.os == 'Windows'
         run: .\tools\msvc\swig.bat
         env:
-          SWIG_PATH: "C:\\ProgramData\\chocolatey\\lib\\swig\\tools\\install\\swigwin-3.0.7"
+          SWIG_PATH: "C:\\ProgramData\\chocolatey\\lib\\swig\\tools\\install\\swigwin-4.1.1"
 
       - name: Generate ecmult_static_context.h
         if: runner.os == 'Windows'
@@ -55,11 +53,21 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install gnu-sed swig automake
 
+      - name: Install Linux Build Deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swig python3-dev
+
       - name: Build Wheels
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_SKIP: "cp27-* cp35-* cp38-win32* cp39-win32*  pp*"
+          CIBW_SKIP: "cp27-* cp35-* cp36-* cp37-* pp* *-musllinux*"
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ARCHS_LINUX: "x86_64"
+          CIBW_ARCHS_WINDOWS: "AMD64"
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
+          name: wheels
           path: ./wheelhouse/*.whl
