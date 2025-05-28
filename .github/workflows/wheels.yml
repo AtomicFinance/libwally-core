@@ -51,13 +51,14 @@ jobs:
 
       - name: Install macOS Build Deps
         if: runner.os == 'macOS'
-        run: brew install gnu-sed swig automake
+        run: |
+          brew install gnu-sed swig automake autoconf libtool pkg-config
 
       - name: Install Linux Build Deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y swig python3-dev
+          sudo apt-get install -y swig python3-dev automake autoconf libtool pkg-config
 
       - name: Build Wheels
         run: python -m cibuildwheel --output-dir wheelhouse
@@ -66,6 +67,17 @@ jobs:
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_LINUX: "x86_64"
           CIBW_ARCHS_WINDOWS: "AMD64"
+          # Install build dependencies inside the build container
+          CIBW_BEFORE_ALL_LINUX: |
+            yum install -y epel-release && \
+            yum install -y automake autoconf libtool swig3 && \
+            ln -sf /usr/bin/swig3.0 /usr/bin/swig || \
+            ln -sf /usr/bin/swig3 /usr/bin/swig
+          CIBW_BEFORE_ALL_MACOS: "brew install automake autoconf libtool swig || true"
+          # Environment variables for the build
+          CIBW_ENVIRONMENT: "WALLY_ABI_PY_WHEEL_VERSION=1001"
+          # Increase build verbosity
+          CIBW_BUILD_VERBOSITY: 1
 
       - uses: actions/upload-artifact@v4
         with:
