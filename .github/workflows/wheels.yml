@@ -1,16 +1,13 @@
-name: Build
+name: Build Wheels
 
-on: 
+on:
   push:
-    branches-ignore:
+    branches:
+    - develop
     - feature/*
-    - cfd-develop
-    - cfd-stable-*
   pull_request:
-    branches-ignore:
-    - cfd-develop
-    - cfd-stable-*
-    - feature/*
+    branches:
+    - develop
 
 jobs:
   build_wheels:
@@ -18,32 +15,51 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-2022, self-hosted, ubuntu-22.04]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           submodules: true
 
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v5
+        if: matrix.os != 'self-hosted'
         name: Install Python
         with:
-          python-version: '3.8'
+          python-version: '3.10'
 
-      - uses: ilammy/msvc-dev-cmd@v1.4.1
+      - name: Setup Python for self-hosted runner
+        if: matrix.os == 'self-hosted'
+        run: |
+          echo "Using system Python"
+          python3 --version
+          pip3 --version
+          # Get Python version for cibuildwheel
+          PYTHON_VERSION=$(python3 -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
+          echo "PYTHON_VERSION=$PYTHON_VERSION" >> $GITHUB_ENV
+          echo "Detected Python version: $PYTHON_VERSION"
+
+      - uses: ilammy/msvc-dev-cmd@v1.13.0
+        if: runner.os == 'Windows'
 
       - name: Install cibuildwheel
-        run: python -m pip install cibuildwheel==1.11.0
+        run: |
+          if [ "${{ matrix.os }}" = "self-hosted" ]; then
+            pip3 install cibuildwheel==2.16.2
+          else
+            python -m pip install cibuildwheel==2.16.2
+          fi
+        shell: bash
 
       - name: Install Windows Build Deps
         if: runner.os == 'Windows'
-        run: choco install swig --version=3.0.7 --no-progress -y
+        run: choco install swig --version=4.1.1 --no-progress -y
 
       - name: Generate Windows SWIG Files
         if: runner.os == 'Windows'
         run: .\tools\msvc\swig.bat
         env:
-          SWIG_PATH: "C:\\ProgramData\\chocolatey\\lib\\swig\\tools\\install\\swigwin-3.0.7"
+          SWIG_PATH: "C:\\ProgramData\\chocolatey\\lib\\swig\\tools\\install\\swigwin-4.1.1"
 
       - name: Generate ecmult_static_context.h
         if: runner.os == 'Windows'
@@ -53,13 +69,115 @@ jobs:
 
       - name: Install macOS Build Deps
         if: runner.os == 'macOS'
-        run: brew install gnu-sed swig automake
+        run: |
+          brew install gnu-sed swig automake autoconf libtool pkg-config
 
-      - name: Build Wheels
+      - name: Install Linux Build Deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swig python3-dev automake autoconf libtool pkg-config
+
+      - name: Install Self-hosted Build Deps
+        if: matrix.os == 'self-hosted'
+        run: |
+          # Install SWIG and other build dependencies for self-hosted ARM64 runner
+          brew install swig automake autoconf libtool pkg-config || true
+          which swig
+          swig -version
+
+      - name: Build Wheels (Self-hosted)
+        if: matrix.os == 'self-hosted'
+        run: |
+          # Build wheel manually on self-hosted runner using direct CMake to avoid npm dependency issues
+          echo "Building wheel manually on self-hosted ARM64 runner using direct CMake"
+
+          # Install required Python packages
+          python3 -m pip install wheel setuptools
+
+          # Use direct CMake commands instead of npm scripts
+          mkdir -p build
+          cd build
+
+          # Configure with CMake directly (using our ARM64 fixes)
+          cmake .. \
+            -DENABLE_SHARED=ON \
+            -DENABLE_ELEMENTS=ON \
+            -DENABLE_SWIG_PYTHON=ON \
+            -DENABLE_SWIG_JAVA=OFF \
+            -DGENERATE_WALLY=OFF \
+            -DENABLE_JS_WRAPPER=OFF \
+            -DTARGET_RPATH="/usr/local/lib;/usr/local/lib64;@executable_path" \
+            -DCMAKE_BUILD_TYPE=Release
+
+          # Build the library
+          make -j$(sysctl -n hw.ncpu)
+
+          cd ..
+
+          # Check if SWIG files were generated
+          ls -la src/swig_python/
+          ls -la build/
+          ls -la build/swig_python/
+
+          # The SWIG-generated files are in the build directory
+          # Copy them to create a proper Python package
+          mkdir -p wheelhouse
+          
+          # Use the CMake-generated Python package
+          cd build/swig_python
+          
+          # The wallycore package should already be set up by CMake
+          ls -la wallycore/
+          
+          # Create a simple setup.py for building the wheel
+          echo "import os" > setup.py
+          echo "from setuptools import setup, find_packages" >> setup.py
+          echo "from setuptools.dist import Distribution" >> setup.py
+          echo "" >> setup.py
+          echo "class BinaryDistribution(Distribution):" >> setup.py
+          echo "    def has_ext_modules(self):" >> setup.py
+          echo "        return True" >> setup.py
+          echo "" >> setup.py
+          echo "setup(" >> setup.py
+          echo "    name='wallycore'," >> setup.py
+          echo "    version='0.8.3'," >> setup.py
+          echo "    description='libwally Bitcoin library'," >> setup.py
+          echo "    packages=find_packages()," >> setup.py
+          echo "    package_data={" >> setup.py
+          echo "        'wallycore': ['_wallycore.dylib', '_wallycore.so', '_wallycore.pyd']," >> setup.py
+          echo "    }," >> setup.py
+          echo "    include_package_data=True," >> setup.py
+          echo "    distclass=BinaryDistribution," >> setup.py
+          echo "    zip_safe=False," >> setup.py
+          echo ")" >> setup.py
+
+          # Build the wheel
+          python3 setup.py bdist_wheel
+          cp dist/*.whl ../../wheelhouse/
+        env:
+          WALLY_ABI_PY_WHEEL_VERSION: "1001"
+          ARCHFLAGS: "-arch arm64"
+          _PYTHON_HOST_PLATFORM: "macosx-11.0-arm64"
+
+      - name: Build Wheels (Other platforms)
+        if: matrix.os != 'self-hosted'
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_SKIP: "cp27-* cp35-* cp38-win32* cp39-win32*  pp*"
+          CIBW_SKIP: "cp27-* cp35-* cp36-* cp37-* pp* *-musllinux*"
+          CIBW_ARCHS_MACOS: "native"
+          CIBW_ARCHS_LINUX: "x86_64"
+          CIBW_ARCHS_WINDOWS: "AMD64"
+          CIBW_BEFORE_ALL_LINUX: |
+            yum install -y epel-release && \
+            yum install -y automake autoconf libtool swig3 && \
+            ln -sf /usr/bin/swig3.0 /usr/bin/swig || \
+            ln -sf /usr/bin/swig3 /usr/bin/swig
+          CIBW_BEFORE_ALL_MACOS: "brew install automake autoconf libtool swig || true"
+          CIBW_ENVIRONMENT: "WALLY_ABI_PY_WHEEL_VERSION=1001"
+          CIBW_BUILD_VERBOSITY: 1
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         with:
+          name: wheels-${{ matrix.os }}
           path: ./wheelhouse/*.whl

@@ -3,18 +3,11 @@ name: push check
 on: 
   push:
     branches:
-    - cmake_build
-    - cfd-develop
-    - dlc-develop
-    - cfd-stable-*
+    - develop
     - feature/*
   pull_request:
     branches:
-    - cmake_build
-    - cfd-develop
-    - dlc-develop
-    - cfd-stable-*
-    - feature/*
+    - develop
 
 jobs:
   cmake-js-build:
@@ -22,21 +15,16 @@ jobs:
     name: cmake-js build
     runs-on: ${{ matrix.os }}
     strategy:
-      max-parallel: 2
       matrix:
-        os: [macos-10.15, ubuntu-18.04]
-        node: [12, 14]
-        exclude:
-          - os: macos-10.15
-            node: 12
+        os: [ubuntu-22.04]
+        node: [18]
 
-# windows has illegal AES result.
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
     - name: setup-node
-      uses: actions/setup-node@v2.1.2
+      uses: actions/setup-node@v3
       with:
         node-version: ${{ matrix.node }}
     - name: npm_install
@@ -50,31 +38,31 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        type: [msvc, msys, apple, ubuntu-20.04, ubuntu-18.04]
+        type: [msvc, apple-arm64, ubuntu-22.04]
         include:
           - type: msvc
-            os: windows-2019
-            generator: Visual Studio 16 2019
-          - type: msys
-            os: windows-2019
-            generator: MSYS Makefiles
-          - type: apple
-            os: macos-10.15
+            os: windows-2022
+            generator: Visual Studio 17 2022
+          - type: apple-arm64
+            os: self-hosted
             generator: Unix Makefiles
-          - type: ubuntu-20.04
-            os: ubuntu-20.04
-            generator: Unix Makefiles
-          - type: ubuntu-18.04
-            os: ubuntu-18.04
+            arch: arm64
+          - type: ubuntu-22.04
+            os: ubuntu-22.04
             generator: Unix Makefiles
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
     - name: cmake-generate
+      if: matrix.type != 'apple-arm64'
       run: |
         cmake -S . -B build -G "${{ matrix.generator }}" -DENABLE_SHARED=on -DENABLE_ELEMENTS=on -DCMAKE_BUILD_PARALLEL_LEVEL=2 -DGENERATE_WALLY=off -DTARGET_RPATH="./wrap_js/build/Release;\$\${ORIGIN}/;\${ORIGIN}/"
+    - name: cmake-generate-mac-arch
+      if: matrix.type == 'apple-arm64'
+      run: |
+        cmake -S . -B build -G "${{ matrix.generator }}" -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} -DENABLE_SHARED=on -DENABLE_ELEMENTS=on -DCMAKE_BUILD_PARALLEL_LEVEL=2 -DGENERATE_WALLY=off -DTARGET_RPATH="./wrap_js/build/Release;\$\${ORIGIN}/;\${ORIGIN}/"
     - name: cmake-build
       run: |
         cmake --version
@@ -90,58 +78,40 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-10.15, windows-2019, ubuntu-18.04]
+        os: [ubuntu-22.04]
         target: [python, java]
-        java: [8.0.x, 11.0.x, 13]
+        java: [11.0.x, 17]
         exclude:
           - target: python
-            java: 11.0.x
-          - target: python
-            java: 13
-          - os: windows-2019
-            target: python
-          - os: macos-10.15
-            target: python
-          - os: windows-2019
-            target: java
-          - os: macos-10.15
-            target: java
+            java: 17
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
     - name: setup python
       if: matrix.target == 'python'
-      uses: actions/setup-python@v1
+      uses: actions/setup-python@v4
       with:
         python-version: '3.x'
         architecture: x64
     - name: setup java
       if: matrix.target == 'java'
-      uses: actions/setup-java@v1
+      uses: actions/setup-java@v3
       with:
         java-version: ${{ matrix.java }}
         architecture: x64
+        distribution: 'temurin'
     - name: ubuntu-install-swig
-      if: matrix.os == 'ubuntu-18.04'
       run: sudo apt install swig
     - name: cmake-generate-python-config
-      if: matrix.os != 'windows-2019' && matrix.target == 'python'
+      if: matrix.target == 'python'
       run: |
         cmake -S . -B build -G "Unix Makefiles" -DENABLE_SHARED=on -DENABLE_ELEMENTS=on -DCMAKE_BUILD_PARALLEL_LEVEL=2 -DENABLE_SWIG_PYTHON=on -DGENERATE_WALLY=off -DTARGET_RPATH="./wrap_js/build/Release;../"
-    - name: cmake-generate-windows-python-config
-      if: matrix.os == 'windows-2019' && matrix.target == 'python'
-      run: |
-        cmake -S . -B build -G "Visual Studio 16 2019" -DENABLE_SHARED=on -DENABLE_ELEMENTS=on -DCMAKE_BUILD_PARALLEL_LEVEL=2 -DENABLE_SWIG_PYTHON=on -DGENERATE_WALLY=off -DTARGET_RPATH="./wrap_js/build/Release;../"
     - name: cmake-generate-java-config
-      if: matrix.os != 'windows-2019' && matrix.target == 'java'
+      if: matrix.target == 'java'
       run: |
         cmake -S . -B build -G "Unix Makefiles" -DENABLE_SHARED=on -DENABLE_ELEMENTS=on -DCMAKE_BUILD_PARALLEL_LEVEL=2 -DENABLE_SWIG_JAVA=on -DGENERATE_WALLY=off -DTARGET_RPATH="./wrap_js/build/Release;../"
-    - name: cmake-generate-windows-java-config
-      if: matrix.os == 'windows-2019' && matrix.target == 'java'
-      run: |
-        cmake -S . -B build -G "Visual Studio 16 2019" -DENABLE_SHARED=on -DENABLE_ELEMENTS=on -DCMAKE_BUILD_PARALLEL_LEVEL=2 -DENABLE_SWIG_JAVA=on -DGENERATE_WALLY=off -DTARGET_RPATH="./wrap_js/build/Release;../"
     - name: cmake-build
       run: |
         cmake --version
@@ -156,51 +126,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-10.15, ubuntu-18.04]
-        go-version: [1.14.x, 1.15.x]
+        os: [ubuntu-22.04]
+        go-version: [1.21.x]
 
     steps:
     - name: setup go
-      uses: actions/setup-go@v1
+      uses: actions/setup-go@v4
       with:
         go-version: ${{ matrix.go-version }}
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
     - name: cmake-generate
-      if: matrix.os != 'windows-2019'
       run: |
         cmake -S . -B build -G "Unix Makefiles" -DENABLE_SHARED=on -DENABLE_TESTS=off -DENABLE_ELEMENTS=on -DTARGET_RPATH="/usr/local/lib;/usr/local/lib64;./build/Release"
-    - name: cmake-generate-windows
-      if: matrix.os == 'windows-2019'
-      run: |
-        cmake -S . -B build -G "MSYS Makefiles" -DENABLE_SHARED=on -DENABLE_TESTS=off -DENABLE_ELEMENTS=on
     - name: cmake-build
       run: |
         cmake --version
         cmake --build build --config Release --parallel 2
         cp ./src/swig_go/*_test.go .
         go mod init github.com/cryptogarageinc/libwally-core
+        go get github.com/stretchr/testify/assert
+        go mod tidy
         go build
-    - name: add-path-windows
-      if: matrix.os == 'windows-2019'
-      run: echo "$GITHUB_WORKSPACE/build/Release" >> $GITHUB_PATH
-      shell: bash
-    - name: go_test-windows
-      if: matrix.os == 'windows-2019'
-      run: |
-        dir
-        cp ./src/swig_go/*_test.go .
-        go test
-      shell: bash
-    - name: go_test-mac
-      if: matrix.os == 'macos-10.15'
-      run: |
-        cd build
-        sudo make install
-        cd ..
-        LD_LIBRARY_PATH=/usr/local/lib go test
     - name: go_test
-      if: matrix.os == 'ubuntu-18.04'
       run: |
         LD_LIBRARY_PATH=./build/Release go test
